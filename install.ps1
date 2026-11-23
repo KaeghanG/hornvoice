@@ -27,8 +27,12 @@ if (-not $uv) {
 
 # 2. HornVoice
 Step 'Installing HornVoice (Python 3.12 environment, about 300 MB of packages)'
-& $uv tool install --python 3.12 --force $Source
-if ($LASTEXITCODE -ne 0) { throw 'uv tool install failed' }
+# Windows PowerShell 5.1 turns a native program's normal progress output (stderr) into errors under 'Stop': relax it for this call.
+$ErrorActionPreference = 'Continue'
+& $uv tool install --python 3.12 --force $Source 2>&1 | ForEach-Object { "$_" } | Write-Host
+$code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($code -ne 0) { throw 'uv tool install failed' }
 $bin = (& $uv tool dir --bin).Trim()
 $gui = Join-Path $bin 'hornvoice-gui.exe'
 if (-not (Test-Path $gui)) { throw "Expected $gui after install" }
