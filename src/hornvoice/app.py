@@ -5,7 +5,7 @@ Run:  hornvoice-gui   (tray icon, no console)   or   python -m hornvoice
 Test: python -m hornvoice --say "open discord"      (parse and print what it would do, nothing is executed)
       python -m hornvoice --wav some.wav            (transcribe a file, then parse)
 """
-import collections, ctypes, datetime, json, os, queue, re, subprocess, sys, threading, time, urllib.parse
+import collections, ctypes, datetime, json, os, queue, re, subprocess, sys, threading, time, urllib.parse, urllib.request, urllib.error
 import numpy as np
 
 APPDATA = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "HornVoice")
@@ -22,6 +22,10 @@ DEFAULTS = {
     "wake_word": True,            # say "hey horn ..." without touching the keyboard
     "wake_phrases": ["hey horn", "hey gjallarhorn", "okay horn", "ok horn", "gjallarhorn", "horn"],
     "sounds": True,
+    "brain": True,                        # when the regex rules below miss, ask a local Ollama model to rephrase into a known command
+    "brain_model": "qwen3.5:9b",          # small + fast; this only rewrites a phrase, it never runs anything itself
+    "brain_url": "http://127.0.0.1:11434",
+    "brain_timeout": 3,                   # seconds; Ollama not running fails near-instantly, so this only bounds a slow/busy GPU
     "mic": None,                  # device name or index; None = Windows default
 }
 DRY = False
@@ -218,7 +222,86 @@ def act(label, fn):
     return True
 
 
-def handle_command(raw):
+# ---------------------------------------------------------------- the "brain" (local Ollama fallback)
+# This never executes anything by itself. It only rewrites what you said into one line of plain English chosen
+# from the same fixed template list the regex rules above already understand, which is then fed straight back
+# through handle_command - so the worst case is "no match", exactly like today, not a new way to run something.
+BRAIN_SYSTEM = """You rewrite a spoken phrase into exactly one short command from this fixed list of templates, or the single word NONE if nothing fits well. Reply with ONLY the rewritten command text, nothing else - no quotes, no explanation.
+
+Templates (fill in <x> naturally from what was said):
+open <app name>
+launch <app name>
+play <game name>
+volume <0-100>
+volume up
+volume down
+mute
+pause
+next song
+previous song
+lock the pc
+go to sleep
+shut down
+restart
+screenshot
+show desktop
+minimize
+maximize
+close window
+switch window
+task manager
+open settings
+file explorer
+what time is it
+search for <query>
+type <text>
+couch mode
+go home
+open the menu
+open friends
+open downloads
+open play reports
+open library
+open store
+help
+
+Examples:
+"can you crank the volume please" -> volume up
+"i wanna chill in the big picture thing" -> couch mode
+"fire up that souls game with the weird letters" -> play elden ring
+"whats on my calendar" -> NONE
+"put the computer to sleep for me" -> go to sleep
+"pull up my downloads" -> open downloads
+"turn the volume down a little" -> volume down
+"crack open notepad" -> open notepad"""
+
+
+def brain_rewrite(raw):
+    """Ask a small local model to turn an unrecognized phrase into a known command. Returns a string, or None
+    if the brain is off, Ollama isn't reachable, or it couldn't make sense of it. Fails fast and silently."""
+    if not CFG.get("brain", True):
+        return None
+    body = json.dumps({
+        "model": CFG.get("brain_model", "qwen3.5:9b"),
+        "prompt": f'{BRAIN_SYSTEM}\n\n"{raw.strip()}" ->',
+        "stream": False,
+        "think": False,  # these are hybrid "thinking" models; without this the reply is empty and this gets slow
+        "options": {"temperature": 0, "num_predict": 24},
+    }).encode("utf-8")
+    url = CFG.get("brain_url", "http://127.0.0.1:11434").rstrip("/") + "/api/generate"
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=float(CFG.get("brain_timeout", 3))) as r:
+            out = json.loads(r.read()).get("response", "").strip().strip('"').strip(".")
+    except Exception as e:
+        log(f"brain: unavailable ({e})")
+        return None
+    if not out or out.upper() == "NONE":
+        return None
+    return out
+
+
+def handle_command(raw, _from_brain=False):
     t = clean(raw)
     if not t:
         return False
@@ -328,6 +411,13 @@ def handle_command(raw):
         if app:
             return act(f"open {app[0]}", lambda: run(["explorer.exe", f"shell:AppsFolder\\{app[1]}"]))
         return act("launch game " + what, lambda: gj("launch", what))
+
+    if not _from_brain and CFG.get("brain", True):
+        rewritten = brain_rewrite(raw)
+        if rewritten and clean(rewritten) != t:
+            log(f'brain: "{raw.strip()}" -> "{rewritten}"')
+            if handle_command(rewritten, _from_brain=True):
+                return True
 
     say(f'Sorry, I did not understand "{raw.strip()}".')
     beep("bad")

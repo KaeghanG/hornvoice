@@ -63,6 +63,16 @@ Beeps tell you what happened: high = listening, mid = done, low = didn't underst
 | "stop listening" / "start listening" | Turn the wake word off / on |
 | "quit voice control" | Exits |
 
+If a phrase doesn't match any of the above, and you have [Ollama](https://ollama.com) running locally, HornVoice asks a small model to rephrase it into one of these commands before giving up - so "can you turn this down a bit" still works as "volume down". See **The brain** below.
+
+### The brain (optional, local, off by default without Ollama)
+
+HornVoice ships with a fixed set of command patterns (the table above). When none of them match, it can hand the phrase to a small model running in [Ollama](https://ollama.com) on your own PC and ask for a one-line rewrite into a command it already knows - nothing more. That rewritten line is run back through the exact same rules, so **the model can never do anything the rules above don't already allow**, and a risky action (sleep, shut down, restart) still needs you to say "confirm" out loud.
+
+- Needs [Ollama](https://ollama.com) installed and running, with a model pulled (default `qwen3.5:9b`: `ollama pull qwen3.5:9b`). HornVoice does not install or manage Ollama for you.
+- If Ollama isn't running, this fails in well under a second and HornVoice behaves exactly as it does without it.
+- Set `"brain": false` in the config to turn it off entirely, or change `brain_model` to any Ollama model you have pulled.
+
 ## Settings
 
 `%APPDATA%\HornVoice\config.json` (restart HornVoice after editing):
@@ -74,6 +84,8 @@ Beeps tell you what happened: high = listening, mid = done, low = didn't underst
 | `cpu_threads` | `4` | How many CPU threads Whisper may use |
 | `command_key` / `dictation_key` | `right ctrl` / `right alt` | Hold-to-talk keys |
 | `wake_word` / `wake_phrases` | `true` / "hey horn", … | Always-on wake word and the phrases that trigger it |
+| `brain` | `true` | Ask a local Ollama model to rephrase an unrecognized command (see **The brain** above). No effect if Ollama isn't running |
+| `brain_model` / `brain_url` | `qwen3.5:9b` / `http://127.0.0.1:11434` | Which Ollama model and server to use |
 | `mic` | `null` | Microphone name or index (default = Windows default) |
 | `sounds` | `true` | Beeps |
 

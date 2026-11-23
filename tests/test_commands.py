@@ -14,6 +14,7 @@ def dry(monkeypatch):
     app.APPS["list"] = [("Discord", "Discord.App"), ("Notepad", "Notepad.App")]
     app.APPS["t"] = time.time()
     app.PENDING.update(fn=None, label="", until=0)
+    app.CFG["brain"] = False  # keep the default test run fully offline; brain tests below turn it on and mock the network call
 
 
 @pytest.mark.parametrize("phrase", [
@@ -53,3 +54,48 @@ def test_wake_phrase_is_stripped():
     assert app.strip_wake("Hey horn") == ""
     assert app.strip_wake("Hey horne open discord") == "open discord"  # common mishearing
     assert app.strip_wake("what is the weather like") is None
+
+
+# ---------------------------------------------------------------- the "brain" (local Ollama fallback)
+# These never touch the network: brain_rewrite is mocked, so they only check that handle_command uses its
+# output correctly and safely - never that a real model is running.
+
+def test_brain_rewrite_is_fed_back_through_the_real_rules(monkeypatch):
+    app.CFG["brain"] = True
+    monkeypatch.setattr(app, "brain_rewrite", lambda raw: "volume up")
+    assert app.handle_command("can you crank it please") is True
+
+
+def test_brain_off_is_never_called(monkeypatch):
+    app.CFG["brain"] = False
+    called = []
+    monkeypatch.setattr(app, "brain_rewrite", lambda raw: called.append(raw) or "volume up")
+    assert app.handle_command("gibberish nonsense phrase") is False
+    assert called == []
+
+
+def test_brain_none_falls_through_to_sorry(monkeypatch):
+    app.CFG["brain"] = True
+    monkeypatch.setattr(app, "brain_rewrite", lambda raw: None)
+    assert app.handle_command("gibberish nonsense phrase") is False
+
+
+def test_brain_cannot_bypass_the_sleep_confirmation(monkeypatch):
+    # The brain only proposes text; handle_command still runs it through the same rules, so a risky action
+    # still needs a spoken "confirm" - the brain can't skip that step.
+    app.CFG["brain"] = True
+    monkeypatch.setattr(app, "brain_rewrite", lambda raw: "go to sleep")
+    ran = []
+    monkeypatch.setattr(app, "run", lambda *a, **k: ran.append(a))
+    assert app.handle_command("put this thing to bed") is True
+    assert app.PENDING["fn"] is not None
+    assert ran == []
+
+
+def test_brain_failure_does_not_crash(monkeypatch):
+    app.CFG["brain"] = True
+
+    def boom(url, timeout=3, **kw):
+        raise OSError("connection refused")
+    monkeypatch.setattr(app.urllib.request, "urlopen", boom)
+    assert app.handle_command("gibberish nonsense phrase") is False
