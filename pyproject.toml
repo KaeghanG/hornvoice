@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hornvoice"
+version = "0.1.0"
+description = "Local, offline voice control for Windows: hold-to-talk commands, dictation and a wake word, powered by Whisper."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10,<3.14"
+authors = [{ name = "KaeghanG" }]
+keywords = ["voice control", "whisper", "windows", "speech recognition", "offline", "dictation"]
+classifiers = [
+  "Operating System :: Microsoft :: Windows",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+]
+dependencies = [
+  "faster-whisper>=1.0",
+  "sounddevice>=0.4",
+  "numpy",
+  "keyboard>=0.13",
+  "pystray>=0.19",
+  "pillow",
+  "rapidfuzz>=3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+build = ["pyinstaller>=6"]
+
+[project.scripts]
+hornvoice = "hornvoice.app:main"
+
+[project.gui-scripts]
+hornvoice-gui = "hornvoice.app:main"
+
+[project.urls]
+Homepage = "https://github.com/KaeghanG/hornvoice"
+Issues = "https://github.com/KaeghanG/hornvoice/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hornvoice"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
